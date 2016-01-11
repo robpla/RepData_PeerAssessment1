@@ -1,25 +1,159 @@
 ---
-title: "Reproducible Research: Peer Assessment 1"
-output: 
+title: "reproductible_research"
+date: "Sunday, January 10, 2016"
+output:
   html_document:
     keep_md: true
 ---
 
+## The data
+The data comes from https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2Factivity.zip and was accessed 2016-01-10.
 
-## Loading and preprocessing the data
+The data comes from a personal activity monitoring device which collects number of steps at 5 minute intervals through out the day. The data consists of two months of data from an anonymous individual collected during the months of October and November, 2012.
+The variables included in this dataset are:
+- steps: Number of steps taking in a 5-minute interval (missing values are coded as NA)
+- date: The date on which the measurement was taken in YYYY-MM-DD format
+- interval: Identifier for the 5-minute interval in which measurement was taken
 
+### Loading and preprocessing the data
 
+Data format needed readjusting which was done using the `ymd` function from lubridate package
 
+```{r}
+setwd("D:\\")
+activity <- read.csv("activity.csv",header=TRUE,sep=",")
+##check the data
+head(activity)
+##check data classes
+sapply(activity,class)
+##transform the date
+library(lubridate)
+activity$date <- ymd(activity$date)
+##check data classes
+sapply(activity,class)
+##now date's ok
+```
 ## What is mean total number of steps taken per day?
 
+I calculate the daily sum of steps taken using "plyr" package. The result will be in V1 variable.
+```{r}
+library(plyr)
+steps_daily <- ddply(activity, .(date), function(df) sum(df$steps, na.rm=TRUE))
+```
 
+The histogram is below.
+```{r}
+hist(steps_daily$V1, breaks=length(steps_daily$date),xlab="day code", main="histogram") # it's 2 hours before the deadline so I'll give up on converting the numbers to a meaningful format ;-)
+```
 
+The mean and median of steps taken a day needs replicating the code for daily sum with minor changes.
+```{r}
+params <- ddply(activity, .(date), function(df) data.frame(mean=mean(df$steps, na.rm=TRUE)
+                                                          ,median=median(df$steps, na.rm=TRUE)))
+```
+
+The "report" in the task is quite ambiguous, so I'll both make plots
+```{r}
+plot(params$date, params$mean, col="red", type="b", xlab="day", ylab="steps", main="mean steps a day")
+plot(params$date, params$median, col="blue", type="b", xlab="day", ylab="steps", main="median steps a day")
+```
+
+and print out the results
+```{r}
+params
+```
 ## What is the average daily activity pattern?
 
+I calculate the average per interval accross all days and plot it:
+```{r}
+interval_mean <- ddply(activity, .(interval), function(df) data.frame(mean=mean(df$steps, na.rm=TRUE)))
+plot(interval_mean$interval, interval_mean$mean, type="l", xlab="interval", ylab="mean steps", main="steps in an interval averaged over all days")
+```
 
+I calculate the most active interval:
+```{r}
+index <- which.max(interval_mean$mean)
+interval_mean[index, "interval"]
+```
 
 ## Imputing missing values
 
+The total number of rows with NAs is:
+```{r}
+nrow(activity)-nrow(na.omit(activity))
+```
 
+My strategy for NAs in using the mean for that 5-minute interval. This is possible, since all the missing data is in steps only.
+```{r}
+##check where the data is missing
+sapply(activity, function(df) sum(is.na(df)))
+##impute NAs
+activity_imp <- ddply(activity, .(interval), function(df) {
+  df[is.na(df$steps)==TRUE, "steps"] <- interval_mean[interval_mean$interval == df[1,"interval"], "mean"]
+  return(df)
+  }
+)
+```
+
+To check if the data was imputed, I rerun the following calculation:
+```{r}
+nrow(activity_imp)-nrow(na.omit(activity_imp))
+```
+
+Let's recalculate the summary on the imputed data:
+```{r}
+activity_imp_summary <- ddply(activity_imp, .(date), function(df) data.frame(sum=sum(df$steps)
+                                                                             ,mean=mean(df$steps)
+                                                                             ,median=median(df$steps)))
+##reporting everything
+activity_imp_summary
+```
+The histogram on imputed data showing the sum of steps taken each day (on top) and the original data for comparison (on bottom)
+```{r}
+#par(mfrow=c(2,1))
+hist(activity_imp_summary$sum, breaks=length(activity_imp_summary$date),xlab="day code",main="imputed") # ;-)
+hist(steps_daily$V1, breaks=length(steps_daily$date),xlab="day code", main="original") # it's 2 hours before the deadline so I'll give up on 
+```
+One can see that imputing decreased near zero values and increased heights of bins near the center of the histogram. It makes sense since I used mean values to impute.
+
+Let's now see if means and medians differ.
+```{r}
+##make sure the data is sorted the same way
+params <- params[order(params$date),]
+activity_imp_summary <- activity_imp_summary[order(activity_imp_summary$date),]
+##check the differences in mean
+params$mean - activity_imp_summary$mean
+##check the difference in median
+params$median - activity_imp_summary$median
+```
+It turns out that there is no difference in either means or medians.
 
 ## Are there differences in activity patterns between weekdays and weekends?
+
+```{r}
+activity_imp$day_type <- "weekday"
+##this one is needed to switch to English when knitting... a workaround, but...
+Sys.setlocale("LC_ALL","English")
+activity_imp[weekdays(activity_imp$date) %in% c("Saturday", "Sunday"), "day_type"] <- "weekend"
+```
+Let's calculate the average number of steps taken in the 5 minutes interval, averaged across all weekday days or weekend days:
+```{r}
+activity_imp_day_type_summary <- ddply(activity_imp, .(day_type, interval), function(df) data.frame(mean=mean(df$steps)))
+```
+Let's plot:
+```{r}
+#par(mfrow=c(1,1))
+##splitting by day_type into 2 subsets
+wk_d <- activity_imp_day_type_summary[activity_imp_day_type_summary$day_type == "weekday",]
+wk_e <- activity_imp_day_type_summary[activity_imp_day_type_summary$day_type == "weekend",]
+##max mean for y axis
+mx <- max(wk_d$mean, wk_e$mean)
+plot(wk_d$interval, wk_d$mean, col="red", ylim=c(0,mx), type="l",xlab="interval",ylab="mean",main="weekend vs weekday")
+par(new=TRUE)
+plot(wk_e$interval, wk_e$mean, col="blue", ylim=c(0,mx), type="l",xlab="interval",ylab="mean",main="weekend vs weekday")
+legend(x="topright",legend=c("weekday", "weekend"), fill=c("red", "blue"))
+```
+And it is good to see that not only I like lazy weekend mornings :-).
+
+
+
